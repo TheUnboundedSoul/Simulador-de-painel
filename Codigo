@@ -1,0 +1,126 @@
+#include <elapsedMillis.h>
+#include <WiFi.h>
+#include <PubSubClient.h>
+#include <Stepper.h>
+
+// Pino do sensor LDR
+#define LDR_PIN 34 // Use um pino analógico do ESP32
+
+// Configuração do motor de passo
+#define STEPS_PER_REV 2048 // Passos por revolução (ULN2003)
+#define IN1 14             // Pinos de controle do motor
+#define IN2 12
+#define IN3 13
+#define IN4 15
+Stepper stepper(STEPS_PER_REV, IN1, IN3, IN2, IN4);
+
+// Variáveis globais
+int lightIntensity = 0;
+unsigned long lightExposureStart = 0;
+unsigned long totalLightTime = 0;
+bool isExposedToLight = false;
+const unsigned int interval = 2000; // Intervalo para publicação MQTT (2 segundos)
+
+// Credenciais para conexão Wi-Fi
+const char* ssid = "Wokwi-GUEST";
+const char* password = "";
+
+// Dados do servidor MQTT
+const char* mqtt_server = "broker.hivemq.com"; // Servidor público HiveMQ
+const char* topic_luminosity = "iotfrontier/luz";
+const char* topic_light_time = "iotfrontier/tempoutil";
+
+WiFiClient espClient;
+PubSubClient client(espClient);
+
+// Variável para controle de tempo
+elapsedMillis timeElapsed;
+
+void setupwifi() {
+  WiFi.begin(ssid, password);
+  Serial.print("Conectando ao Wi-Fi");
+  while (WiFi.status() != WL_CONNECTED) {
+    delay(500);
+    Serial.print(".");
+  }
+  Serial.println("\nConectado ao Wi-Fi!");
+  Serial.print("Endereço IP: ");
+  Serial.println(WiFi.localIP());
+}
+
+// Função para reconectar ao servidor MQTT
+void reconnect() {
+  while (!client.connected()) {
+    Serial.print("Tentando conectar ao MQTT...");
+    String clientId = "ESP8266Client-";
+    clientId += String(random(0xffff), HEX);
+    if (client.connect(clientId.c_str())) {
+      Serial.println("Conectado ao MQTT!");
+      client.publish("iotfrontier/mqtt", "iotfrontier");
+      client.subscribe("iotfrontier/mqtt");
+    } else {
+      Serial.print("Falha ao conectar. Código de erro: ");
+      Serial.println(client.state());
+      delay(5000); // Espera 5 segundos antes de tentar novamente
+    }
+  }
+}
+
+void setup() {
+  Serial.begin(115200);
+
+  // Configuração Wi-Fi
+  setupwifi();
+
+  // Configuração do servidor MQTT
+  client.setServer(mqtt_server, 1883);
+
+  // Configuração do motor de passo
+  stepper.setSpeed(5); // Velocidade do motor em RPM (ajuste conforme necessário)
+}
+
+void loop() {
+  // Verifica e reconecta ao MQTT se necessário
+  if (!client.connected()) {
+    reconnect();
+  }
+  client.loop();
+
+  // Leitura do LDR e envio ao MQTT a cada 2 segundos
+  if (timeElapsed >= interval) {
+    timeElapsed = 0;
+
+    // Lê a luminosidade do LDR
+    lightIntensity = analogRead(LDR_PIN);
+    Serial.print("Luminosidade: ");
+    Serial.println(lightIntensity);
+
+    // Verifica se o LDR está exposto à luz
+    if (lightIntensity > 512) { // Considera luz acima de 50% (ajuste conforme necessário)
+      if (!isExposedToLight) {
+        isExposedToLight = true;
+        lightExposureStart = millis();
+      }
+    } else {
+      if (isExposedToLight) {
+        isExposedToLight = false;
+        totalLightTime += millis() - lightExposureStart;
+      }
+    }
+
+    // Calcula tempo útil de exposição à luz
+    unsigned long usefulLightTime = totalLightTime / 1000; // Converte para segundos
+
+    // Publica os dados no servidor MQTT
+    client.publish(topic_luminosity, String(lightIntensity).c_str());
+    client.publish(topic_light_time, String(usefulLightTime).c_str());
+
+    Serial.println("Dados enviados ao MQTT:");
+    Serial.println(" - Luminosidade: " + String(lightIntensity));
+    Serial.println(" - Tempo útil de luz: " + String(usefulLightTime) + " segundos");
+  }
+
+  // Faz o motor de passo girar lentamente
+  stepper.step(1); // Move 1 passo por iteração
+  delay(10);       // Ajuste o atraso para controlar a velocidade
+}
