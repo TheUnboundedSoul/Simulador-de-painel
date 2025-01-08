@@ -1,17 +1,17 @@
 #include <elapsedMillis.h>
-#include <WiFi.h>
+#include <ESP8266WiFi.h>
 #include <PubSubClient.h>
 #include <Stepper.h>
 
 // Pino do sensor LDR
-#define LDR_PIN 34 // Use um pino analógico do ESP32
+#define LDR_PIN A0 // Pino analógico no ESP8266 (A0)
 
 // Configuração do motor de passo
 #define STEPS_PER_REV 2048 // Passos por revolução (ULN2003)
-#define IN1 14             // Pinos de controle do motor
-#define IN2 12
-#define IN3 13
-#define IN4 15
+#define IN1 D1             // Pinos de controle do motor
+#define IN2 D2
+#define IN3 D3
+#define IN4 D4
 Stepper stepper(STEPS_PER_REV, IN1, IN3, IN2, IN4);
 
 // Variáveis globais
