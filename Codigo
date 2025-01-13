@@ -18,12 +18,11 @@ Stepper stepper(STEPS_PER_REV, IN1, IN3, IN2, IN4);
 int lightIntensity = 0;
 unsigned long lightExposureStart = 0;
 unsigned long totalLightTime = 0;
-bool isExposedToLight = false;
 const unsigned int interval = 2000; // Intervalo para publicação MQTT (2 segundos)
 
 // Credenciais para conexão Wi-Fi
-const char* ssid = "Wokwi-GUEST";
-const char* password = "";
+const char* ssid = "NOS-C776";
+const char* password = "MKT3EH2G";
 
 // Dados do servidor MQTT
 const char* mqtt_server = "broker.hivemq.com"; // Servidor público HiveMQ
@@ -35,6 +34,10 @@ PubSubClient client(espClient);
 
 // Variável para controle de tempo
 elapsedMillis timeElapsed;
+
+// Variáveis do motor de passo
+const int smallStep = 200; // Número de passos para girar (ajuste conforme necessário)
+bool motorReturning = false; // Indica se o motor está voltando à posição original
 
 void setupwifi() {
   WiFi.begin(ssid, password);
@@ -76,7 +79,7 @@ void setup() {
   client.setServer(mqtt_server, 1883);
 
   // Configuração do motor de passo
-  stepper.setSpeed(5); // Velocidade do motor em RPM (ajuste conforme necessário)
+  stepper.setSpeed(10); // Velocidade do motor em RPM (ajuste conforme necessário)
 }
 
 void loop() {
@@ -95,17 +98,16 @@ void loop() {
     Serial.print("Luminosidade: ");
     Serial.println(lightIntensity);
 
-    // Verifica se o LDR está exposto à luz
-    if (lightIntensity > 512) { // Considera luz acima de 50% (ajuste conforme necessário)
-      if (!isExposedToLight) {
-        isExposedToLight = true;
-        lightExposureStart = millis();
+    // Verifica se o LDR está em baixa luminosidade (abaixo de 800)
+    if (lightIntensity < 800) { 
+      if (lightExposureStart == 0) {
+        lightExposureStart = millis(); // Marca o início do tempo útil
+      } else {
+        totalLightTime += millis() - lightExposureStart; // Acumula o tempo útil
+        lightExposureStart = millis(); // Reinicia o tempo de início
       }
     } else {
-      if (isExposedToLight) {
-        isExposedToLight = false;
-        totalLightTime += millis() - lightExposureStart;
-      }
+      lightExposureStart = 0; // Reseta o tempo de início quando a luz está acima de 800
     }
 
     // Calcula tempo útil de exposição à luz
@@ -120,7 +122,14 @@ void loop() {
     Serial.println(" - Tempo útil de luz: " + String(usefulLightTime) + " segundos");
   }
 
-  // Faz o motor de passo girar lentamente
-  stepper.step(1); // Move 1 passo por iteração
-  delay(10);       // Ajuste o atraso para controlar a velocidade
+  // Controle do motor de passo
+  if (!motorReturning) {
+    stepper.step(smallStep); // Gira o motor um pequeno ângulo
+    delay(500); // Pequena pausa para simular a ação
+    motorReturning = true; // Indica que o motor deve retornar
+  } else {
+    stepper.step(-smallStep); // Retorna o motor à posição original
+    delay(500); // Pequena pausa
+    motorReturning = false; // Pronto para o próximo ciclo
+  }
 }
